@@ -8,6 +8,7 @@ text
 ├── checkpoint_xxx.pth  # 断点续训文件（自动生成）
 ├── best_val_xxx.pth    # 验证集最佳权重（自动生成）
 └── class_indices_xxx.json  # 类别映射表（自动生成）
+
 🖥️ 环境依赖
 bash
 python >= 3.8
@@ -16,6 +17,7 @@ torchvision >= 0.11
 scikit-learn
 numpy
 Pillow
+
 安装：
 
 bash
