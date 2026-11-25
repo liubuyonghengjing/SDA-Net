@@ -3,29 +3,6 @@ import torch
 import torch.nn.functional as F
 import math
 
-# class SCConv(nn.Module):
-#     def __init__(self, in_channels, stride=1, pooling_r=4):
-#         super(SCConv, self).__init__()
-#         self.pool = nn.AvgPool2d(kernel_size=pooling_r, stride=pooling_r)
-#         self.conv_g = nn.Conv2d(in_channels, in_channels, kernel_size=1)
-#         self.bn_g = nn.BatchNorm2d(in_channels)
-#
-#         self.conv_local = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=stride, padding=1)
-#         self.bn_local = nn.BatchNorm2d(in_channels)
-#
-#         self.sigmoid = nn.Sigmoid()
-#
-#     def forward(self, x):
-#         x_pool = self.pool(x)
-#         x_global = self.conv_g(x_pool)
-#         x_global = self.bn_g(x_global)
-#         x_global = F.interpolate(x_global, size=x.shape[2:], mode='bilinear', align_corners=True)
-#
-#         gate = self.sigmoid(x + x_global)
-#         x_local = self.conv_local(x * gate)
-#         x_local = self.bn_local(x_local)
-#         return x_local
-
 # TransformerBlock
 class TransformerBlock(nn.Module):
     def __init__(self, in_channels, out_channels, num_heads=4, ff_dim=2048, dropout=0.1):
@@ -113,12 +90,12 @@ class SpatialAttention_ECA(nn.Module):
         attention = self.sigmoid(y.view(b, 1, h, w))
         return attention  # 权重 (B,1,H,W)
 
-class CBAM_ECA_Sequential(nn.Module):
+class CASA_Sequential(nn.Module):
     def __init__(self, channel, reduction=16, gamma=2, b=1):
         """
         串联方式: 先通道注意力 (CA)，再空间注意力 (SA)
         """
-        super(CBAM_ECA_Sequential, self).__init__()
+        super(CASA_Sequential, self).__init__()
         self.channel_attention = ChannelAttention(channel, reduction)
         self.spatial_attention = SpatialAttention_ECA(gamma, b)
 
@@ -157,7 +134,7 @@ class DualBranchBottleneck(nn.Module):
             self.relu = nn.ReLU(inplace=True)
             self.downsample = downsample
 
-            self.cbam = CBAM_ECA_Sequential(out_channel * self.expansion)  # CBAM模块
+            self.casa = CASA_Sequential(out_channel * self.expansion)  # CBAM模块
 
     def forward(self, x):
         identity = x
@@ -181,7 +158,7 @@ class DualBranchBottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
 
-        out = self.cbam(out)
+        out = self.casa(out)
 
         if self.downsample is not None:
             identity = self.downsample(x)
@@ -217,7 +194,7 @@ class Bottleneck(nn.Module):
             self.conv3 = nn.Conv2d(width, planes * self.expansion, kernel_size=1, bias=False)
             self.bn3 = nn.BatchNorm2d(planes * self.expansion)
 
-            self.cbam = CBAM_ECA_Sequential(planes * self.expansion)  # CBAM模块
+            self.casa = CASA_Sequential(planes * self.expansion)  # CBAM模块
 
     def forward(self, x):
         identity = x
@@ -241,7 +218,7 @@ class Bottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
 
-        out = self.cbam(out)
+        out = self.casa(out)
 
         if self.downsample is not None:
             identity = self.downsample(x)
@@ -348,73 +325,6 @@ class ResNeXtFusion(nn.Module):
 
 
 
-# # ResNeXt 主干网络
-# class ResNeXt(nn.Module):
-#     def __init__(self, block, block_num, num_classes=1000, include_top=True, groups=1, width_per_group=64):
-#         super(ResNeXt, self).__init__()
-#         self.include_top = include_top
-#         self.in_channel = 64
-#         self.groups = groups
-#         self.width_per_group = width_per_group
-#
-#         self.conv1 = nn.Conv2d(3, self.in_channel, kernel_size=7, stride=2, padding=3, bias=False)
-#         self.bn1 = nn.BatchNorm2d(self.in_channel)
-#         self.relu = nn.ReLU(inplace=True)
-#         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-#
-#         self.layer0 = self._make_layer(block, 64, block_num[0], use_transformer=True)
-#         self.layer1 = self._make_layer(block, 64, block_num[0], use_transformer=0)
-#         self.layer2 = self._make_layer(block, 128, block_num[1], stride=2)
-#         self.layer3 = self._make_layer(block, 256, block_num[2], stride=2)
-#         self.layer4 = self._make_layer(block, 512, block_num[3], stride=2)
-#
-#         if self.include_top:
-#             self.avepool = nn.AdaptiveAvgPool2d((1, 1))
-#             self.fc = nn.Linear(512 * block.expansion, num_classes)
-#
-#         for m in self.modules():
-#             if isinstance(m, nn.Conv2d):
-#                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-#
-#     def _make_layer(self, block, channel, block_num, stride=1, use_transformer=False):
-#         downsample = None
-#         if stride != 1 or self.in_channel != channel * block.expansion:
-#             downsample = nn.Sequential(
-#                 nn.Conv2d(self.in_channel, channel * block.expansion, kernel_size=1, stride=stride, bias=False),
-#                 nn.BatchNorm2d(channel * block.expansion))
-#
-#         layers = []
-#         layers.append(block(self.in_channel, channel, stride=stride, downsample=downsample,
-#                             groups=self.groups, width_per_group=self.width_per_group, use_transformer=use_transformer))
-#         self.in_channel = channel * block.expansion
-#         for _ in range(1, block_num):
-#             layers.append(block(self.in_channel, channel,
-#                                 groups=self.groups, width_per_group=self.width_per_group, use_transformer=use_transformer))
-#         return nn.Sequential(*layers)
-#
-#     def forward(self, x):
-#         x = self.conv1(x)
-#         x = self.bn1(x)
-#         x = self.relu(x)
-#         x = self.maxpool(x)
-#
-#         x = self.layer0(x)
-#         x = self.layer1(x)
-#         x = self.layer2(x)
-#         x = self.layer3(x)
-#         x = self.layer4(x)
-#
-#         if self.include_top:
-#             x = self.avepool(x)
-#             x = torch.flatten(x, 1)
-#             x = self.fc(x)
-#         return x
-
-# def resnext50_32x4d(num_classes=1000, include_top=True):
-#     groups = 32
-#     width_per_group = 4
-#     return ResNeXtFusion(Bottleneck, [ 1, 3, 4, 6, 3], num_classes=num_classes, include_top=include_top,
-#                    groups=groups, width_per_group=width_per_group)
 def resnext50_32x4d(num_classes=1000, include_top=True):
     groups = 32
     width_per_group = 4
